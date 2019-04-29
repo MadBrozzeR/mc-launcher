@@ -1,0 +1,29 @@
+{
+  "name": "mc-launcher",
+  "version": "0.0.1",
+  "description": "Minecraft launcher",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MadBrozzeR/mc-launcher.git"
+  },
+  "keywords": [
+    "minecraft",
+    "launcher",
+    "game",
+    "gaming",
+    "mc"
+  ],
+  "author": "MadBrozzeR",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MadBrozzeR/mc-launcher/issues"
+  },
+  "homepage": "https://github.com/MadBrozzeR/mc-launcher#readme",
+  "dependencies": {
+    "mbr-zip": "0.0.1"
+  }
+}
