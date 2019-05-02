@@ -22,6 +22,15 @@ FileSaver.save = function (name, data, callback) {
     }
   });
 }
+FileSaver.exists = function (path, callback) {
+  fs.access(path, fs.constants.F_OK, function (error) {
+    if (error) {
+      callback && callback(false);
+    } else {
+      callback && callback(true);
+    }
+  })
+}
 FileSaver.prototype.done = function (name, error) {
   if (error) {
     this.result.hasErrors = true;

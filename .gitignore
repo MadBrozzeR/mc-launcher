@@ -1,2 +1,6 @@
 libraries
+client
+assets
+natives
+users
 node_modules

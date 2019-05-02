@@ -1,6 +1,3 @@
-const https = require('https');
-const http = require('http');
-const fs = require('fs');
 const MBRZip = require('mbr-zip').MBRZip;
 const mojangApi = require('./mojang-api.js');
 const FileSaver = require('./file-saver.js').FileSaver;
@@ -26,23 +23,7 @@ function print (data, error) {
   error && console.log(error);
 }
 
-const fetcher = new Fetcher(6);
-
-function get (path, callback) {
-  const protocol = path[4] === 's' ? https : http;
-  protocol.request(path, function (message) {
-    let data = [];
-    let length = 0;
-    let counter = 0;
-    message.on('data', function (chunk) {
-      data.push(chunk);
-      length += chunk.length;
-    });
-    message.on('end', function () {
-      callback(Buffer.concat(data, length));
-    });
-  }).end();
-}
+const fetcher = new Fetcher(8);
 
 function downloadNatives (library, callback) {
   const name = library.downloads.classifiers['natives-linux'].path;
@@ -50,7 +31,7 @@ function downloadNatives (library, callback) {
   let exclude = library.extract && library.extract.exclude;
   exclude = exclude && (new RegExp('^(?:' + exclude.join('|') + ')'));
 
-  get('https://libraries.minecraft.net/' + name, function (data) {
+  fetcher.get('https://libraries.minecraft.net/' + name, function (data) {
     const saver = new FileSaver(path, function (result) {
       callback(result.hasErrors && result.errors);
     });
@@ -69,20 +50,28 @@ function downloadNatives (library, callback) {
 }
 
 function downloadClient (version, callback) {
-  get(version.downloads.client.url, function (data) {
-    FileSaver.save(version.id + '/client.jar', data, function (name, error) {
-      if (error) {
-        print('Failed to download client\n', error);
-      } else {
-        print('Client downloaded successfully\n');
-      }
-      callback(name, error);
-    });
+  const filePath = ROOT + '/client/' + version.id + '/client.jar';
+
+  FileSaver.exists(filePath, function (exists) {
+    if (exists) {
+      print('Client already exists: ' + version.id + '\n');
+    } else {
+      fetcher.get(version.downloads.client.url, function (data) {
+        FileSaver.save(filePath, data, function (name, error) {
+          if (error) {
+            print('Failed to download client\n', error);
+          } else {
+            print('Client downloaded successfully\n');
+          }
+          callback && callback(name, error);
+        });
+      });
+    }
   });
 }
 
 function downloadAssets (assetsIndex, callback) {
-  get(assetsIndex.url, function (data) {
+  fetcher.get(assetsIndex.url, function (data) {
     const response = JSON.parse(data.toString());
     const saver = new FileSaver(ROOT + '/assets/', function (result) {
       callback(result);
@@ -91,7 +80,7 @@ function downloadAssets (assetsIndex, callback) {
     for (let name in response.objects) {
       saver.asyncSave(name, function (callback) {
         let path = response.objects[name].hash.substr(0, 2) + '/' + response.objects[name].hash;
-        get('http://resources.download.minecraft.net/' + path, function (data) {
+        fetcher.get('http://resources.download.minecraft.net/' + path, function (data) {
           print('Downloaded asset ' + name + '\n');
           callback(data);
         });
@@ -115,9 +104,13 @@ function downloadLibrary (library, callback) {
     }
   }
 
-  fs.access(path, fs.constants.F_OK, function (error) {
-    if (error) {
-      get('https://libraries.minecraft.net/' + name, function (data) {
+  FileSaver.exists(path, function (exists) {
+    if (exists) {
+      print('Library already exists: ' + library.name + '\n');
+      downloaded.library = true;
+      done();
+    } else {
+      fetcher.get('https://libraries.minecraft.net/' + name, function (data) {
         FileSaver.save(path + '/' + name, data, function (name, error) {
           if (error) {
             console.log(error);
@@ -127,10 +120,6 @@ function downloadLibrary (library, callback) {
           done();
         });
       });
-    } else {
-      print('Library already exists: ' + library.name + '\n');
-      downloaded.library = true;
-      done();
     }
   });
 
@@ -150,7 +139,7 @@ function downloadLibrary (library, callback) {
 }
 
 function requestVersions (callback) {
-  get(MANIFEST, function (data) {callback(JSON.parse(data));});
+  Fetcher.fetch(MANIFEST, function (data) {callback(JSON.parse(data));});
 }
 
 function versionInfo (version, callback) {
@@ -165,7 +154,7 @@ function versionInfo (version, callback) {
     }
 
     if (result) {
-      get(result.url, function (data) {
+      Fetcher.fetch(result.url, function (data) {
         callback(JSON.parse(data));
       });
     }
@@ -211,20 +200,20 @@ switch (ACTION) {
   case 'make':
     versionInfo(args.id, function (data) {
       let counter = data.libraries.length + 1;
-      function next () {
-        if (--counter === 0) {
-          downloadAssets(data.assetIndex, function (result) {
-            if (result.hasErrors) {
-              print('Failed to save some assets\n');
-              console.log(result.errors);
-            }
-            print('All downloaded\n');
-          });
-        }
-      }
-      downloadClient(data, next);
+      downloadClient(data, function () {});
       for (let index = 0 ; index < data.libraries.length ; ++index) {
-        downloadLibrary(data.libraries[index], next);
+        downloadLibrary(data.libraries[index], function () {});
+      }
+      /*
+      downloadAssets(data.assetIndex, function (result) {
+        if (result.hasErrors) {
+          print('Failed to save some assets\n');
+          console.log(result.errors);
+        }
+      });
+      */
+      fetcher.callback = function () {
+        print('All downloaded\n');
       }
     });
     break;

@@ -1,9 +1,28 @@
+const https = require('https');
+const http = require('http');
+
 function Fetcher (count, callback) {
   this.counter = 0;
   this.index = 0;
   this.max = count;
   this.queue = [];
   this.callback = callback;
+}
+Fetcher.fetch = function (path, callback) {
+  const protocol = path[4] === 's' ? https : http;
+
+  protocol.request(path, function (message) {
+    let data = [];
+    let length = 0;
+    let counter = 0;
+    message.on('data', function (chunk) {
+      data.push(chunk);
+      length += chunk.length;
+    });
+    message.on('end', function () {
+      callback && callback(Buffer.concat(data, length));
+    });
+  }).end();
 }
 Fetcher.prototype.get = function (path, callback) {
   this.queue.push(arguments);
@@ -15,7 +34,7 @@ Fetcher.prototype.start = function () {
       this.download();
     }
   } else {
-    this.callback();
+    this.callback && this.callback();
   }
 };
 Fetcher.prototype.download = function () {
@@ -26,22 +45,13 @@ Fetcher.prototype.download = function () {
 
   const path = next[0];
   const callback = next[1];
-  const protocol = path[4] === 's' ? https : http;
   const fetcher = this;
 
-  protocol.request(path, function (message) {
-    let data = [];
-    let length = 0;
-    let counter = 0;
-    message.on('data', function (chunk) {
-      data.push(chunk);
-      length += chunk.length;
-    });
-    message.on('end', function () {
-      fetcher.start();
-      callback(Buffer.concat(data, length));
-    });
-  }).end();
+  Fetcher.fetch(path, function (data) {
+    fetcher.counter++;
+    fetcher.start();
+    callback && callback(data);
+  });
 };
 
 module.exports = {
