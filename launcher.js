@@ -1,11 +1,17 @@
 const MBRZip = require('mbr-zip').MBRZip;
-const mojangApi = require('./mojang-api.js');
-const FileSaver = require('./file-saver.js').FileSaver;
-const Fetcher = require('./fetcher.js').Fetcher;
+const spawn = require('child_process').spawn;
+const mojangApi = require('./class/mojang-api.js');
+const FileSaver = require('./class/file-saver.js').FileSaver;
+const Fetcher = require('./class/fetcher.js').Fetcher;
 
 const MANIFEST = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
 
 const ROOT = __dirname;
+const LIBRARIES_PATH = ROOT + '/libraries/';
+const VERSIONS_PATH = ROOT + '/versions/';
+const USERS_PATH = ROOT + '/users/';
+const GAME_PATH = ROOT + '/game/';
+const ASSETS_PATH = ROOT + '/assets/';
 
 const ARG_RE = /^--([-\w]+)(?:=(.*))?$/;
 
@@ -25,14 +31,13 @@ function print (data, error) {
 
 const fetcher = new Fetcher(8);
 
-function downloadNatives (library, callback) {
+function downloadNatives (nativesPath, library, callback) {
   const name = library.downloads.classifiers['natives-linux'].path;
-  const path = ROOT + '/natives/';
   let exclude = library.extract && library.extract.exclude;
   exclude = exclude && (new RegExp('^(?:' + exclude.join('|') + ')'));
 
   fetcher.get('https://libraries.minecraft.net/' + name, function (data) {
-    const saver = new FileSaver(path, function (result) {
+    const saver = new FileSaver(nativesPath, function (result) {
       callback(result.hasErrors && result.errors);
     });
 
@@ -50,7 +55,7 @@ function downloadNatives (library, callback) {
 }
 
 function downloadClient (version, callback) {
-  const filePath = ROOT + '/client/' + version.id + '/client.jar';
+  const filePath = VERSIONS_PATH + version.id + '/client.jar';
 
   FileSaver.exists(filePath, function (exists) {
     if (exists) {
@@ -73,25 +78,31 @@ function downloadClient (version, callback) {
 function downloadAssets (assetsIndex, callback) {
   fetcher.get(assetsIndex.url, function (data) {
     const response = JSON.parse(data.toString());
-    const saver = new FileSaver(ROOT + '/assets/', function (result) {
+    const saver = new FileSaver(ASSETS_PATH, function (result) {
       callback(result);
     });
 
     for (let name in response.objects) {
-      saver.asyncSave(name, function (callback) {
-        let path = response.objects[name].hash.substr(0, 2) + '/' + response.objects[name].hash;
-        fetcher.get('http://resources.download.minecraft.net/' + path, function (data) {
-          print('Downloaded asset ' + name + '\n');
-          callback(data);
-        });
+      FileSaver.exists(ASSETS_PATH + name, function (exists) {
+        if (exists) {
+          print('Asset already exists: ' + name + '\n');
+        } else {
+          saver.asyncSave(name, function (callback) {
+            let path = response.objects[name].hash.substr(0, 2) + '/' + response.objects[name].hash;
+            fetcher.get('http://resources.download.minecraft.net/' + path, function (data) {
+              print('Downloaded asset ' + name + '\n');
+              callback(data);
+            });
+          });
+        }
       });
     }
   });
 }
 
-function downloadLibrary (library, callback) {
+function downloadLibrary (nativesPath, library, callback) {
   const name = library.downloads.artifact.path;
-  const path = ROOT + '/libraries/';
+  const path = LIBRARIES_PATH + name;
 
   const downloaded = {
     library: false,
@@ -100,7 +111,7 @@ function downloadLibrary (library, callback) {
 
   function done () {
     if (downloaded.library && downloaded.natives) {
-      callback(library);
+      callback && callback(library);
     }
   }
 
@@ -110,8 +121,8 @@ function downloadLibrary (library, callback) {
       downloaded.library = true;
       done();
     } else {
-      fetcher.get('https://libraries.minecraft.net/' + name, function (data) {
-        FileSaver.save(path + '/' + name, data, function (name, error) {
+      fetcher.get(library.downloads.artifact.url, function (data) {
+        FileSaver.save(path, data, function (name, error) {
           if (error) {
             console.log(error);
           }
@@ -124,7 +135,7 @@ function downloadLibrary (library, callback) {
   });
 
   if (library.downloads.classifiers && library.downloads.classifiers['natives-linux']) {
-    downloadNatives(library, function (error) {
+    downloadNatives(nativesPath, library, function (error) {
       if (error) {
         console.log(error);
       }
@@ -166,7 +177,7 @@ function authenticate (user, pass) {
     if (status === 200) {
       const username = data.selectedProfile.name;
       FileSaver.save(
-        ROOT + '/users/' + username + '.json',
+        USERS_PATH + username + '.json',
         JSON.stringify(data),
         function (name, error) {
           if (error) {
@@ -179,6 +190,66 @@ function authenticate (user, pass) {
     } else {
       print('Authentication failed: \n');
       console.log(data);
+    }
+  });
+}
+
+function useTemplate (template, substitutions) {
+  return template.replace(/\$\{(\w+)\}/g, function (_, key) {
+    return substitutions[key] || '';
+  });
+}
+
+function getArguments (version, params) {
+  const result = [];
+  for (let index = 0 ; index < version.arguments.jvm.length ; ++index) {
+    let argument = version.arguments.jvm[index];
+    if (typeof argument === 'string') {
+      result.push(useTemplate(argument, params));
+    }
+  }
+  result.push(version.mainClass);
+  return result;
+}
+
+function startGame () {
+  const dir = VERSIONS_PATH + args.id + '/';
+
+  let localArguments = [
+    '-Xmx1G',
+    '-XX:+UseConcMarkSweepGC',
+    '-XX:+CMSIncrementalMode',
+    '-XX:-UseAdaptiveSizePolicy',
+    '-Xmn128M'
+  ];
+  FileSaver.read(dir + 'arguments.json', function (error, data) {
+    if (error) {
+      print('Failed to read arguments for version ' + args.id + '\n', error);
+    } else {
+      const versionArguments = JSON.parse(data.toString());
+
+      FileSaver.read(USERS_PATH + args.user + '.json', function (error, data) {
+        if (error) {
+          print('User ' + args.user + ' is not authenticated\n');
+        } else {
+          const user = JSON.parse(data.toString());
+          localArguments = localArguments.concat(versionArguments, [
+            '--accessToken', user.accessToken,
+            '--username', user.selectedProfile.name,
+            '--uuid', user.selectedProfile.id,
+            '--version', args.id,
+            '--gameDir', GAME_PATH,
+            '--assetsDir', ASSETS_PATH
+          ]);
+          FileSaver.save(ROOT + '/start.sh', '#!/bin/sh\njava ' + localArguments.join(' '), function (name, error) {
+            if (error) {
+              print('Failed to create start.sh\n', error);
+            } else {
+              print('start.sh have been created\n');
+            }
+          });
+        }
+      });
     }
   });
 }
@@ -200,18 +271,38 @@ switch (ACTION) {
   case 'make':
     versionInfo(args.id, function (data) {
       let counter = data.libraries.length + 1;
-      downloadClient(data, function () {});
-      for (let index = 0 ; index < data.libraries.length ; ++index) {
-        downloadLibrary(data.libraries[index], function () {});
+      const params = {
+        natives_directory: VERSIONS_PATH + data.id + '/natives/',
+        launcher_name: 'mc-launcher',
+        launcher_version: '0.0.1',
+        classpath: []
+      };
+      params.classpath.toString = function () {
+        return this.join(':');
       }
-      /*
+      downloadClient(data);
+      for (let index = 0 ; index < data.libraries.length ; ++index) {
+        downloadLibrary(params.natives_directory, data.libraries[index]);
+        params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
+      }
+      params.classpath.push(VERSIONS_PATH + data.id + '/client.jar');
       downloadAssets(data.assetIndex, function (result) {
         if (result.hasErrors) {
           print('Failed to save some assets\n');
           console.log(result.errors);
         }
       });
-      */
+      FileSaver.save(
+        VERSIONS_PATH + data.id + '/arguments.json',
+        JSON.stringify(getArguments(data, params)),
+        function (name, error) {
+          if (error) {
+            print('Failed to save arguments\n', error);
+          } else {
+            print('Arguments saved\n');
+          }
+        }
+      );
       fetcher.callback = function () {
         print('All downloaded\n');
       }
@@ -219,6 +310,9 @@ switch (ACTION) {
     break;
   case 'login':
     authenticate(args.name, args.pass);
+    break;
+  case 'start':
+    startGame();
     break;
   default:
     requestVersions(function (data) {

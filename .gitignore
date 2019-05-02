@@ -1,6 +1,8 @@
 libraries
-client
+versions
 assets
-natives
+game
 users
+logs
+start.sh
 node_modules

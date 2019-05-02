@@ -14,10 +14,10 @@ FileSaver.save = function (name, data, callback) {
 
   fs.mkdir(dir, {recursive: true}, function (error) {
     if (error) {
-      callback(name, error);
+      callback && callback(name, error);
     } else {
       fs.writeFile(name, data, function (error) {
-        callback(name, error);
+        callback && callback(name, error);
       });
     }
   });
@@ -30,6 +30,9 @@ FileSaver.exists = function (path, callback) {
       callback && callback(true);
     }
   })
+}
+FileSaver.read = function (path, callback) {
+  fs.readFile(path, callback);
 }
 FileSaver.prototype.done = function (name, error) {
   if (error) {
