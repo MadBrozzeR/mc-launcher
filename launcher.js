@@ -274,7 +274,7 @@ switch (ACTION) {
       const params = {
         natives_directory: VERSIONS_PATH + data.id + '/natives/',
         launcher_name: 'mc-launcher',
-        launcher_version: '0.0.1',
+        launcher_version: '1.0.0',
         classpath: []
       };
       params.classpath.toString = function () {
