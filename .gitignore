@@ -5,4 +5,5 @@ game
 users
 logs
 start.sh
+server.sh
 node_modules

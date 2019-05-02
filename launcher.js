@@ -254,6 +254,32 @@ function startGame () {
   });
 }
 
+function configServer (id) {
+  versionInfo(id, function (data) {
+    print('Downloading server.jar...');
+    Fetcher.fetch(data.downloads.server.url, function (data) {
+      print(' DONE\n');
+      FileSaver.save(VERSIONS_PATH + id + '/server.jar', data, function (name, error) {
+        if (error) {
+          print('Failed to save server.jar\n', error);
+        } else {
+          FileSaver.save(
+            ROOT + '/server.sh',
+            '#!/bin/sh\njava -Xms1G -Xmx4G -jar ' + VERSIONS_PATH + id + '/server.jar nogui',
+            function (name, error) {
+              if (error) {
+                print('Failed to generate server.sh\n', error);
+              } else {
+                print('server.sh successfully generated\n');
+              }
+            }
+          )
+        }
+      });
+    });
+  });
+}
+
 switch (ACTION) {
   case 'list':
     requestVersions(function (meta) {
@@ -270,42 +296,48 @@ switch (ACTION) {
     break;
   case 'make':
     versionInfo(args.id, function (data) {
-      let counter = data.libraries.length + 1;
-      const params = {
-        natives_directory: VERSIONS_PATH + data.id + '/natives/',
-        launcher_name: 'mc-launcher',
-        launcher_version: '1.0.0',
-        classpath: []
-      };
-      params.classpath.toString = function () {
-        return this.join(':');
-      }
-      downloadClient(data);
-      for (let index = 0 ; index < data.libraries.length ; ++index) {
-        downloadLibrary(params.natives_directory, data.libraries[index]);
-        params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
-      }
-      params.classpath.push(VERSIONS_PATH + data.id + '/client.jar');
-      downloadAssets(data.assetIndex, function (result) {
-        if (result.hasErrors) {
-          print('Failed to save some assets\n');
-          console.log(result.errors);
+      FileSaver.read(ROOT + '/package.json', function (error, data) {
+        if (error) {
+          return;
+        }
+        const version = JSON.parse(data.toString()).version;
+
+        const params = {
+          natives_directory: VERSIONS_PATH + data.id + '/natives/',
+          launcher_name: 'mc-launcher',
+          launcher_version: version,
+          classpath: []
+        };
+        params.classpath.toString = function () {
+          return this.join(':');
+        }
+        downloadClient(data);
+        for (let index = 0 ; index < data.libraries.length ; ++index) {
+          downloadLibrary(params.natives_directory, data.libraries[index]);
+          params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
+        }
+        params.classpath.push(VERSIONS_PATH + data.id + '/client.jar');
+        downloadAssets(data.assetIndex, function (result) {
+          if (result.hasErrors) {
+            print('Failed to save some assets\n');
+            console.log(result.errors);
+          }
+        });
+        FileSaver.save(
+          VERSIONS_PATH + data.id + '/arguments.json',
+          JSON.stringify(getArguments(data, params)),
+          function (name, error) {
+            if (error) {
+              print('Failed to save arguments\n', error);
+            } else {
+              print('Arguments saved\n');
+            }
+          }
+        );
+        fetcher.callback = function () {
+          print('All downloaded\n');
         }
       });
-      FileSaver.save(
-        VERSIONS_PATH + data.id + '/arguments.json',
-        JSON.stringify(getArguments(data, params)),
-        function (name, error) {
-          if (error) {
-            print('Failed to save arguments\n', error);
-          } else {
-            print('Arguments saved\n');
-          }
-        }
-      );
-      fetcher.callback = function () {
-        print('All downloaded\n');
-      }
     });
     break;
   case 'login':
@@ -313,6 +345,9 @@ switch (ACTION) {
     break;
   case 'start':
     startGame();
+    break;
+  case 'server':
+    configServer(args.id);
     break;
   default:
     requestVersions(function (data) {
