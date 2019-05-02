@@ -27,7 +27,7 @@ function request (options, url, data, callback) {
     message.on('end', function () {
       callback(message.statusCode, JSON.parse(data));
     });
-  }).end(data && JSON.stringify(data));
+  }).end(data && (typeof data === 'string' ? data : JSON.stringify(data)));
 }
 
 function getUUID (name, timestamp, callback) {
@@ -55,7 +55,16 @@ function getProfile (uuid, callback) {
   }, url, undefined, callback)
 }
 
-function auth (account, password, callback) {
+function changeSkin (params, callback) {
+  request(
+    { ...OPTIONS.POST, headers: {Authorization: 'Bearer ' + params.accessToken} },
+    '/user/profile/' + params.uuid + '/skin',
+    'model=' + (params.slim ? '""' : '"slim"') + '&url=' + encodeURIComponent(params.url),
+    callback
+  );
+}
+
+function authenticate (account, password, callback) {
   request(OPTIONS.AUTH, '/authenticate', {
     agent: {
       name: 'Minecraft',
@@ -66,10 +75,43 @@ function auth (account, password, callback) {
   }, callback);
 }
 
+function refreshAuth (accessToken, clientToken, selectedProfile, callback) {
+  request(OPTIONS.AUTH, '/refresh', {
+    accessToken,
+    clientToken,
+    selectedProfile
+  }, callback);
+}
+
+function validateAuth (accessToken, clientToken, callback) {
+  request(OPTIONS.AUTH, '/validate', {
+    accessToken,
+    clientToken
+  }, function (status) {
+    if (status === 204) {
+      callback && callback(status, true);
+    } else {
+      callback && callback(status, false);
+    }
+  });
+}
+
+function signOut (username, password, callback) {
+  request(OPTIONS.AUTH, '/signout', {username, password}, callback);
+}
+
+function invalidateAuth (accessToken, clientToken, callback) {
+  request(OPTIONS.AUTH, '/invalidate', {accessToken, clientToken}, callback);
+}
+
 module.exports = {
   getUUID,
   getNameHistory,
   getUUIDs,
   getProfile,
-  auth
+  authenticate,
+  refreshAuth,
+  validateAuth,
+  signOut,
+  invalidateAuth
 };
