@@ -173,7 +173,7 @@ function versionInfo (version, callback) {
 }
 
 function authenticate (user, pass) {
-  mojangApi.auth(user, pass, function (status, data) {
+  mojangApi.authenticate(user, pass, function (status, data) {
     if (status === 200) {
       const username = data.selectedProfile.name;
       FileSaver.save(
