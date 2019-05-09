@@ -46,6 +46,16 @@ node launcher.js start --id=VERSION --user=USERNAME
 *--id* - selected minecraft version.
 *--user* - start as selected user.
 
+### Generate server script
+
+Download server jar and generate `server.sh` launch script.
+
+```
+node launcher.js server --id=VERSION
+```
+
+*--id* - selected minecraft version.
+
 ## Start game
 
 After all preparation have been done we can simply launch `./start.sh` script.

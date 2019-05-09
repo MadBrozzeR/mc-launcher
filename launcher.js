@@ -296,11 +296,11 @@ switch (ACTION) {
     break;
   case 'make':
     versionInfo(args.id, function (data) {
-      FileSaver.read(ROOT + '/package.json', function (error, data) {
+      FileSaver.read(ROOT + '/package.json', function (error, packageData) {
         if (error) {
           return;
         }
-        const version = JSON.parse(data.toString()).version;
+        const version = JSON.parse(packageData.toString()).version;
 
         const params = {
           natives_directory: VERSIONS_PATH + data.id + '/natives/',
@@ -312,6 +312,7 @@ switch (ACTION) {
           return this.join(':');
         }
         downloadClient(data);
+        console.log(data);
         for (let index = 0 ; index < data.libraries.length ; ++index) {
           downloadLibrary(params.natives_directory, data.libraries[index]);
           params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
