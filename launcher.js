@@ -54,8 +54,12 @@ function downloadNatives (nativesPath, library, callback) {
   });
 }
 
+function replaceSpaces (string) {
+  return string.replace(/\s/g, '_');
+}
+
 function downloadClient (version, callback) {
-  const filePath = VERSIONS_PATH + version.id + '/client.jar';
+  const filePath = VERSIONS_PATH + replaceSpaces(version.id) + '/client.jar';
 
   FileSaver.exists(filePath, function (exists) {
     if (exists) {
@@ -212,8 +216,12 @@ function getArguments (version, params) {
   return result;
 }
 
+function getArgument (argument) {
+  return (argument.indexOf(' ') > -1) ? '\'' + argument + '\'' : argument;
+}
+
 function startGame () {
-  const dir = VERSIONS_PATH + args.id + '/';
+  const dir = VERSIONS_PATH + replaceSpaces(args.id) + '/';
 
   let localArguments = [
     '-Xmx1G',
@@ -234,21 +242,25 @@ function startGame () {
         } else {
           const user = JSON.parse(data.toString());
           localArguments = localArguments.concat(versionArguments, [
-            '--accessToken', user.accessToken,
-            '--username', user.selectedProfile.name,
-            '--uuid', user.selectedProfile.id,
-            '--version', args.id,
-            '--gameDir', GAME_PATH,
-            '--assetsDir', ASSETS_PATH
+            '--accessToken', getArgument(user.accessToken),
+            '--username', getArgument(user.selectedProfile.name),
+            '--uuid', getArgument(user.selectedProfile.id),
+            '--version', getArgument(args.id),
+            '--gameDir', getArgument(GAME_PATH),
+            '--assetsDir', getArgument(ASSETS_PATH)
           ]);
-          FileSaver.save(ROOT + '/start.sh', '#!/bin/sh\njava ' + localArguments.join(' '), function (name, error) {
-            if (error) {
-              print('Failed to create start.sh\n', error);
-            } else {
-              print('start.sh have been created\n');
+          FileSaver.saveExecutable(
+            ROOT + '/start.sh',
+            '#!/bin/sh\njava ' + localArguments.join(' '),
+            function (name, error) {
+              if (error) {
+                print('Failed to create start.sh\n', error);
+              } else {
+                print('start.sh have been created\n');
+              }
             }
-          });
-        }
+          );
+        };
       });
     }
   });
@@ -259,13 +271,13 @@ function configServer (id) {
     print('Downloading server.jar...');
     Fetcher.fetch(data.downloads.server.url, function (data) {
       print(' DONE\n');
-      FileSaver.save(VERSIONS_PATH + id + '/server.jar', data, function (name, error) {
+      FileSaver.save(VERSIONS_PATH + replaceSpaces(id) + '/server.jar', data, function (name, error) {
         if (error) {
           print('Failed to save server.jar\n', error);
         } else {
-          FileSaver.save(
+          FileSaver.saveExecutable(
             ROOT + '/server.sh',
-            '#!/bin/sh\njava -Xms1G -Xmx4G -jar ' + VERSIONS_PATH + id + '/server.jar nogui',
+            '#!/bin/sh\njava -Xms1G -Xmx4G -jar \'' + VERSIONS_PATH + replaceSpaces(id) + '/server.jar\' nogui',
             function (name, error) {
               if (error) {
                 print('Failed to generate server.sh\n', error);
@@ -303,7 +315,7 @@ switch (ACTION) {
         const version = JSON.parse(packageData.toString()).version;
 
         const params = {
-          natives_directory: VERSIONS_PATH + data.id + '/natives/',
+          natives_directory: VERSIONS_PATH + replaceSpaces(data.id) + '/natives/',
           launcher_name: 'mc-launcher',
           launcher_version: version,
           classpath: []
@@ -317,7 +329,7 @@ switch (ACTION) {
           downloadLibrary(params.natives_directory, data.libraries[index]);
           params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
         }
-        params.classpath.push(VERSIONS_PATH + data.id + '/client.jar');
+        params.classpath.push(VERSIONS_PATH + replaceSpaces(data.id) + '/client.jar');
         downloadAssets(data.assetIndex, function (result) {
           if (result.hasErrors) {
             print('Failed to save some assets\n');
@@ -325,7 +337,7 @@ switch (ACTION) {
           }
         });
         FileSaver.save(
-          VERSIONS_PATH + data.id + '/arguments.json',
+          VERSIONS_PATH + replaceSpaces(data.id) + '/arguments.json',
           JSON.stringify(getArguments(data, params)),
           function (name, error) {
             if (error) {

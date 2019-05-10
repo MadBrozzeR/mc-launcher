@@ -9,18 +9,24 @@ function FileSaver (directory, callback) {
     errors: {}
   }
 }
-FileSaver.save = function (name, data, callback) {
+function save (name, data, options, callback) {
   const dir = name.substr(0, name.lastIndexOf('/') + 1);
 
   fs.mkdir(dir, {recursive: true}, function (error) {
     if (error) {
       callback && callback(name, error);
     } else {
-      fs.writeFile(name, data, function (error) {
+      fs.writeFile(name, data, options, function (error) {
         callback && callback(name, error);
       });
     }
   });
+}
+FileSaver.save = function (name, data, callback) {
+  return save(name, data, undefined, callback);
+}
+FileSaver.saveExecutable = function (name, data, callback) {
+  return save(name, data, {mode: 0o766}, callback);
 }
 FileSaver.exists = function (path, callback) {
   fs.access(path, fs.constants.F_OK, function (error) {

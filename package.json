@@ -1,6 +1,6 @@
 {
   "name": "mc-launcher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Minecraft launcher",
   "main": "index.js",
   "scripts": {
