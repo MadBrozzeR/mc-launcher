@@ -2,11 +2,12 @@ const MBRZip = require('mbr-zip').MBRZip;
 const spawn = require('child_process').spawn;
 const mojangApi = require('./class/mojang-api.js');
 const FileSaver = require('./class/file-saver.js').FileSaver;
+const passwordPrompt = require('./password-prompt.js');
 const Fetcher = require('./class/fetcher.js').Fetcher;
 
 const MANIFEST = 'https://launchermeta.mojang.com/mc/game/version_manifest.json';
 
-const ROOT = __dirname;
+const ROOT = process.cwd();
 const LIBRARIES_PATH = ROOT + '/libraries/';
 const VERSIONS_PATH = ROOT + '/versions/';
 const USERS_PATH = ROOT + '/users/';
@@ -176,8 +177,8 @@ function versionInfo (version, callback) {
   });
 }
 
-function authenticate (user, pass) {
-  mojangApi.authenticate(user, pass, function (status, data) {
+function authenticate (user, password) {
+  mojangApi.authenticate(user, password, function (status, data) {
     if (status === 200) {
       const username = data.selectedProfile.name;
       FileSaver.save(
@@ -196,6 +197,16 @@ function authenticate (user, pass) {
       console.log(data);
     }
   });
+}
+
+function login (user, password) {
+  if (password) {
+    authenticate(user, password);
+  } else {
+    passwordPrompt('Enter password: ', function (password) {
+      authenticate(user, password);
+    });
+  }
 }
 
 function useTemplate (template, substitutions) {
@@ -220,8 +231,15 @@ function getArgument (argument) {
   return (argument.indexOf(' ') > -1) ? '\'' + argument + '\'' : argument;
 }
 
-function startGame () {
-  const dir = VERSIONS_PATH + replaceSpaces(args.id) + '/';
+function startGame (id, user) {
+  if (!id) {
+    return print('Please provide version id with `--id=<version>` argument\n');
+  }
+  if (!user) {
+    return print('Please provide username with `--user=<username>` argument\n');
+  }
+
+  const dir = VERSIONS_PATH + replaceSpaces(id) + '/';
 
   let localArguments = [
     '-Xmx1G',
@@ -232,20 +250,20 @@ function startGame () {
   ];
   FileSaver.read(dir + 'arguments.json', function (error, data) {
     if (error) {
-      print('Failed to read arguments for version ' + args.id + '\n', error);
+      print('Failed to read arguments for version ' + id + '\n', error);
     } else {
       const versionArguments = JSON.parse(data.toString());
 
-      FileSaver.read(USERS_PATH + args.user + '.json', function (error, data) {
+      FileSaver.read(USERS_PATH + user + '.json', function (error, data) {
         if (error) {
-          print('User ' + args.user + ' is not authenticated\n');
+          print('User ' + user + ' is not authenticated\n');
         } else {
-          const user = JSON.parse(data.toString());
+          const userData = JSON.parse(data.toString());
           localArguments = localArguments.concat(versionArguments, [
-            '--accessToken', getArgument(user.accessToken),
-            '--username', getArgument(user.selectedProfile.name),
-            '--uuid', getArgument(user.selectedProfile.id),
-            '--version', getArgument(args.id),
+            '--accessToken', getArgument(userData.accessToken),
+            '--username', getArgument(userData.selectedProfile.name),
+            '--uuid', getArgument(userData.selectedProfile.id),
+            '--version', getArgument(id),
             '--gameDir', getArgument(GAME_PATH),
             '--assetsDir', getArgument(ASSETS_PATH)
           ]);
@@ -267,6 +285,10 @@ function startGame () {
 }
 
 function configServer (id) {
+  if (!id) {
+    return print('Please provide version id with `--id=<version>` argument\n');
+  }
+
   versionInfo(id, function (data) {
     print('Downloading server.jar...');
     Fetcher.fetch(data.downloads.server.url, function (data) {
@@ -292,75 +314,113 @@ function configServer (id) {
   });
 }
 
-switch (ACTION) {
-  case 'list':
-    requestVersions(function (meta) {
-      let count = args.count ? parseInt(args.count, 10) : -1;
-      for (let index = 0 ; index < meta.versions.length && count ; ++index) {
-        const item = meta.versions[index];
-        if (item.type === 'snapshot' && !args.snaps) {
-          continue;
-        }
-        print(item.id + '\n');
-        --count;
-      }
-    });
-    break;
-  case 'make':
-    versionInfo(args.id, function (data) {
-      FileSaver.read(ROOT + '/package.json', function (error, packageData) {
-        if (error) {
-          return;
-        }
-        const version = JSON.parse(packageData.toString()).version;
+function make (id) {
+  if (!id) {
+    return print('Please provide version id with `--id=<version>` argument\n');
+  }
 
-        const params = {
-          natives_directory: VERSIONS_PATH + replaceSpaces(data.id) + '/natives/',
-          launcher_name: 'mc-launcher',
-          launcher_version: version,
-          classpath: []
-        };
-        params.classpath.toString = function () {
-          return this.join(':');
-        }
-        downloadClient(data);
-        console.log(data);
-        for (let index = 0 ; index < data.libraries.length ; ++index) {
-          downloadLibrary(params.natives_directory, data.libraries[index]);
-          params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
-        }
-        params.classpath.push(VERSIONS_PATH + replaceSpaces(data.id) + '/client.jar');
-        downloadAssets(data.assetIndex, function (result) {
-          if (result.hasErrors) {
-            print('Failed to save some assets\n');
-            console.log(result.errors);
-          }
-        });
-        FileSaver.save(
-          VERSIONS_PATH + replaceSpaces(data.id) + '/arguments.json',
-          JSON.stringify(getArguments(data, params)),
-          function (name, error) {
-            if (error) {
-              print('Failed to save arguments\n', error);
-            } else {
-              print('Arguments saved\n');
-            }
-          }
-        );
-        fetcher.callback = function () {
-          print('All downloaded\n');
+  versionInfo(id, function (data) {
+    FileSaver.read(ROOT + '/package.json', function (error, packageData) {
+      if (error) {
+        return;
+      }
+      const version = JSON.parse(packageData.toString()).version;
+
+      const params = {
+        natives_directory: VERSIONS_PATH + replaceSpaces(data.id) + '/natives/',
+        launcher_name: 'mc-launcher',
+        launcher_version: version,
+        classpath: []
+      };
+      params.classpath.toString = function () {
+        return this.join(':');
+      }
+      downloadClient(data);
+      for (let index = 0 ; index < data.libraries.length ; ++index) {
+        downloadLibrary(params.natives_directory, data.libraries[index]);
+        params.classpath.push(LIBRARIES_PATH + data.libraries[index].downloads.artifact.path);
+      }
+      params.classpath.push(VERSIONS_PATH + replaceSpaces(data.id) + '/client.jar');
+      downloadAssets(data.assetIndex, function (result) {
+        if (result.hasErrors) {
+          print('Failed to save some assets\n');
+          console.log(result.errors);
         }
       });
+      FileSaver.save(
+        VERSIONS_PATH + replaceSpaces(data.id) + '/arguments.json',
+        JSON.stringify(getArguments(data, params)),
+        function (name, error) {
+          if (error) {
+            print('Failed to save arguments\n', error);
+          } else {
+            print('Arguments saved\n');
+          }
+        }
+      );
+      fetcher.callback = function () {
+        print('All downloaded\n');
+      }
     });
+  });
+}
+
+function list () {
+  requestVersions(function (meta) {
+    let count = args.count ? parseInt(args.count, 10) : -1;
+    for (let index = 0 ; index < meta.versions.length && count ; ++index) {
+      const item = meta.versions[index];
+      if (item.type === 'snapshot' && !args.snaps) {
+        continue;
+      }
+      print(item.id + '\n');
+      --count;
+    }
+  });
+}
+
+function refresh (user) {
+  const filename = USERS_PATH + user + '.json';
+  FileSaver.read(filename, function (error, data) {
+    if (error) {
+      print('User is not authenticated\n');
+    } else {
+      const userData = JSON.parse(data.toString());
+      mojangApi.refreshAuth(userData.accessToken, userData.clientToken, undefined, function (status, response) {
+        if (status === 200) {
+          FileSaver.save(filename, JSON.stringify(response), function (name, error) {
+            if (error) {
+              print('Failed to write authentication data\n', error);
+            } else {
+              print('Access token refreshed for ' + user + '\n');
+            }
+          });
+        } else {
+          print('Failed to refresh access token\n', response);
+        }
+      });
+    }
+  });
+}
+
+switch (ACTION) {
+  case 'list':
+    list();
+    break;
+  case 'make':
+    make(args.id);
     break;
   case 'login':
-    authenticate(args.name, args.pass);
+    login(args.name, args.pass);
     break;
   case 'start':
-    startGame();
+    startGame(args.id, args.user);
     break;
   case 'server':
     configServer(args.id);
+    break;
+  case 'refresh':
+    refresh(args.user);
     break;
   default:
     requestVersions(function (data) {
