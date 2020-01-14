@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 
 function FileSaver (directory, callback) {
   this.count = 0;
@@ -36,6 +37,27 @@ FileSaver.exists = function (path, callback) {
       callback && callback(true);
     }
   })
+}
+FileSaver.check = function (path, hash, callback) {
+  const stream = fs.createReadStream(path);
+  let sha1;
+
+  stream.on('error', function () {
+    callback(false);
+  });
+  stream.on('readable', function () {
+    const data = stream.read();
+
+    if (!sha1) {
+      sha1 = crypto.createHash('sha1');
+    }
+
+    if (data) {
+      sha1.update(data);
+    } else {
+      callback(sha1.digest('hex') === hash);
+    }
+  });
 }
 FileSaver.read = function (path, callback) {
   fs.readFile(path, callback);

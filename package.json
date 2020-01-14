@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/MadBrozzeR/mc-launcher#readme",
   "dependencies": {
-    "mbr-zip": "0.0.1"
+    "mbr-zip": "0.0.1",
+    "mc-resource": "^1.0.2"
   }
 }

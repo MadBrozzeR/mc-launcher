@@ -1,5 +1,6 @@
 const MBRZip = require('mbr-zip').MBRZip;
 const spawn = require('child_process').spawn;
+const MCRes = require('mc-resource');
 const mojangApi = require('./class/mojang-api.js');
 const FileSaver = require('./class/file-saver.js').FileSaver;
 const passwordPrompt = require('./password-prompt.js');
@@ -13,6 +14,8 @@ const VERSIONS_PATH = ROOT + '/versions/';
 const USERS_PATH = ROOT + '/users/';
 const GAME_PATH = ROOT + '/game/';
 const ASSETS_PATH = ROOT + '/assets/';
+
+const OS_ID = 'linux';
 
 const ARG_RE = /^--([-\w]+)(?:=(.*))?$/;
 
@@ -32,27 +35,46 @@ function print (data, error) {
 
 const fetcher = new Fetcher(8);
 
-function downloadNatives (nativesPath, library, callback) {
-  const name = library.downloads.classifiers['natives-linux'].path;
-  let exclude = library.extract && library.extract.exclude;
-  exclude = exclude && (new RegExp('^(?:' + exclude.join('|') + ')'));
+function getNatives(library) {
+  if (library.natives) {
+    const nativesKey = library.natives[OS_ID];
+    const classifier = library.downloads.classifiers[nativesKey]
 
-  fetcher.get('https://libraries.minecraft.net/' + name, function (data) {
-    const saver = new FileSaver(nativesPath, function (result) {
-      callback(result.hasErrors && result.errors);
-    });
-
-    const zip = new MBRZip(data);
-    for (let index = 0 ; index < zip.cd.length ; ++index) {
-      if (!exclude || !exclude.exec(zip.cd[index].name)) {
-        saver.asyncSave(zip.cd[index].name, function (save) {
-          zip.extract(index, function (error, data) {
-            save(data);
-          });
-        });
-      }
+    if (classifier) {
+      return classifier;
     }
-  });
+  }
+
+  return null;
+}
+
+function downloadNatives (nativesPath, library, callback) {
+  const natives = getNatives(library);
+
+  if (natives) {
+    let exclude = library.extract && library.extract.exclude;
+    exclude = exclude && (new RegExp('^(?:' + exclude.join('|') + ')'));
+
+    fetcher.get(natives.url, function (data) {
+      const saver = new FileSaver(nativesPath, function (result) {
+        print('Downloaded natives for: ' + library.name + '\n');
+        callback(result.hasErrors && result.errors);
+      });
+
+      const zip = new MBRZip(data);
+      for (let index = 0 ; index < zip.cd.length ; ++index) {
+        if (!exclude || !exclude.exec(zip.cd[index].name)) {
+          saver.asyncSave(zip.cd[index].name, function (save) {
+            zip.extract(index, function (error, data) {
+              save(data);
+            });
+          });
+        }
+      }
+    });
+  } else {
+    callback();
+  }
 }
 
 function replaceSpaces (string) {
@@ -105,8 +127,41 @@ function downloadAssets (assetsIndex, callback) {
   });
 }
 
+function forCurrentOS(rule, prev) {
+  if (rule.os) {
+    if (rule.os.name === OS_ID) {
+      return rule.action === 'allow'
+    } else {
+      return prev;
+    }
+  } else {
+    return rule.action === 'allow';
+  }
+}
+
+function checkOSCapatibility(library) {
+  let result = true;
+  const rules = library.rules;
+
+  if (rules) {
+    result = false;
+    for (let index = 0 ; index < rules.length ; ++index) {
+      result = forCurrentOS(rules[index], result);
+    }
+  }
+
+  return result;
+}
+
 function downloadLibrary (nativesPath, library, callback) {
+  if (!checkOSCapatibility(library)) {
+    callback && callback(library);
+
+    return;
+  }
+
   const name = library.downloads.artifact.path;
+  const hash = library.downloads.artifact.sha1;
   const path = LIBRARIES_PATH + name;
 
   const downloaded = {
@@ -120,7 +175,7 @@ function downloadLibrary (nativesPath, library, callback) {
     }
   }
 
-  FileSaver.exists(path, function (exists) {
+  FileSaver.check(path, hash, function (exists) {
     if (exists) {
       print('Library already exists: ' + library.name + '\n');
       downloaded.library = true;
@@ -139,19 +194,13 @@ function downloadLibrary (nativesPath, library, callback) {
     }
   });
 
-  if (library.downloads.classifiers && library.downloads.classifiers['natives-linux']) {
-    downloadNatives(nativesPath, library, function (error) {
-      if (error) {
-        console.log(error);
-      }
-      print('Downloaded natives for: ' + library.name + '\n');
-      downloaded.natives = true;
-      done();
-    });
-  } else {
+  downloadNatives(nativesPath, library, function (error) {
+    if (error) {
+      console.log(error);
+    }
     downloaded.natives = true;
     done();
-  }
+  });
 }
 
 function requestVersions (callback) {
@@ -159,22 +208,7 @@ function requestVersions (callback) {
 }
 
 function versionInfo (version, callback) {
-  requestVersions(function (meta) {
-    let result;
-
-    for (let index = 0 ; index < meta.versions.length ; ++index) {
-      if (meta.versions[index].id === version) {
-        result = meta.versions[index];
-        break;
-      }
-    }
-
-    if (result) {
-      Fetcher.fetch(result.url, function (data) {
-        callback(JSON.parse(data));
-      });
-    }
-  });
+  MCRes.getVersion(version).then(callback);
 }
 
 function authenticate (user, password) {
@@ -366,15 +400,21 @@ function make (id) {
 }
 
 function list () {
-  requestVersions(function (meta) {
+  MCRes.getManifest().then(function (meta) {
     let count = args.count ? parseInt(args.count, 10) : -1;
+    let skip = args.skip ? parseInt(args.skip, 10) : 0;
+
     for (let index = 0 ; index < meta.versions.length && count ; ++index) {
       const item = meta.versions[index];
       if (item.type === 'snapshot' && !args.snaps) {
         continue;
       }
-      print(item.id + '\n');
-      --count;
+      if (skip) {
+        skip--;
+      } else {
+        print(item.id + '\n');
+        --count;
+      }
     }
   });
 }
